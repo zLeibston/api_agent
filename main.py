@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 
 class AgentMemory:
     """
-    这是你未来做研究的主战场。
-    你可以继承这个类，写 VectorMemory, GraphMemory 等等。
+    未来做研究的主战场。
+    可以继承这个类，写 VectorMemory, GraphMemory 等等。
     """
     def __init__(self, file_path: str):
         self.file_path = file_path
@@ -29,7 +29,7 @@ class AgentMemory:
     def read(self, query: str = "") -> str:
         """
         科研点：这里目前是全量读取。
-        以后你可以改为：根据 query 计算向量相似度，只返回 Top-k 记忆。
+        以后可以改为：根据 query 计算向量相似度，只返回 Top-k 记忆。
         """
         with open(self.file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -38,7 +38,7 @@ class AgentMemory:
     def write(self, content: str) -> str:
         """
         科研点：这里目前是直接追加。
-        以后你可以改为：记忆压缩、遗忘机制、实体提取存入图谱。
+        以后可以改为：记忆压缩、遗忘机制、实体提取存入图谱。
         """
         with open(self.file_path, 'r+', encoding='utf-8') as f:
             data = json.load(f)
