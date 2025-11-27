@@ -11,7 +11,7 @@ from openai.types.chat import (
 from dotenv import load_dotenv
 
 
-# ================= 1. 记忆模块 (你的研究核心) =================
+
 class AgentMemory:
     """
     这是你未来做研究的主战场。
@@ -48,7 +48,7 @@ class AgentMemory:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return f"已记录: {content}"
 
-# ================= 2. Agent 主体类 =================
+
 class Agent:
     def __init__(self, api_key: str, base_url: str, model_name: str, memory_path: str):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
@@ -191,7 +191,7 @@ def get_project_root():
 
     
 
-# ================= 3. 运行代码 =================
+
 if __name__ == "__main__":
     load_dotenv()
     # 配置
