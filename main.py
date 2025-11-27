@@ -9,45 +9,60 @@ from openai.types.chat import (
     ChatCompletionMessageToolCall
 )
 from dotenv import load_dotenv
+from utils.find_root_dir import get_project_root
+from utils.json_clean import parse_json_from_llm 
 
 
 
 class AgentMemory:
-    """
-    未来做研究的主战场。
-    可以继承这个类，写 VectorMemory, GraphMemory 等等。
-    """
     def __init__(self, file_path: str):
         self.file_path = file_path
-        self._init_storage()
+        self._ensure_file_validity() # 启动时自检
 
-    def _init_storage(self):
+    def _ensure_file_validity(self):
+        """确保文件存在且是合法的 JSON,否则重置"""
         if not os.path.exists(self.file_path):
-            with open(self.file_path, 'w', encoding='utf-8') as f:
-                json.dump([], f)
+            self._reset_memory()
+            return
+        
+        # 如果文件存在，尝试读取，看是不是坏的
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content: # 如果是空文件
+                    raise ValueError("File is empty")
+                json.loads(content) # 尝试解析
+        except (json.JSONDecodeError, ValueError):
+            print(f"⚠️ 警告：记忆文件 {self.file_path} 损坏或为空，已重置为 []。")
+            self._reset_memory()
+
+    def _reset_memory(self):
+        """重置记忆文件"""
+        with open(self.file_path, 'w', encoding='utf-8') as f:
+            json.dump([], f)
 
     def read(self, query: str = "") -> str:
-        """
-        科研点：这里目前是全量读取。
-        以后可以改为：根据 query 计算向量相似度，只返回 Top-k 记忆。
-        """
+        self._ensure_file_validity() # 读之前再检查一次
         with open(self.file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         return json.dumps(data, ensure_ascii=False)
 
     def write(self, content: str) -> str:
-        """
-        科研点：这里目前是直接追加。
-        以后可以改为：记忆压缩、遗忘机制、实体提取存入图谱。
-        """
-        with open(self.file_path, 'r+', encoding='utf-8') as f:
+        self._ensure_file_validity() # 写之前再检查一次
+        
+        # 读取现有数据
+        with open(self.file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            data.append({"time": timestamp, "content": content})
-            f.seek(0)
+        
+        # 追加新数据
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        data.append({"time": timestamp, "content": content})
+        
+        # 重新写入
+        with open(self.file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+            
         return f"已记录: {content}"
-
 
 class Agent:
     def __init__(self, api_key: str, base_url: str, model_name: str, memory_path: str):
@@ -131,7 +146,7 @@ class Agent:
             for tool_call in response_msg.tool_calls:
                 tool_call = cast(ChatCompletionMessageToolCall, tool_call)
                 func_name = tool_call.function.name
-                func_args = json.loads(tool_call.function.arguments)
+                func_args = parse_json_from_llm(tool_call.function.arguments)
 
                 
                 
@@ -161,33 +176,7 @@ class Agent:
         
         return str(reply)
     
-def get_project_root():
-    """
-    聪明地找到项目根目录：
-    从当前脚本所在目录开始向上找，只要看到 '.env' 或 '.gitignore' 文件，
-    就认定那是根目录。
-    """
-    current_path = os.path.abspath(os.path.dirname(__file__))
-    
-    # 定义根目录的特征文件（找到其中一个就行）
-    root_markers = [".env", ".gitignore", ".git"]
-    
-    while True:
-        # 看看当前目录下有没有标志文件
-        for marker in root_markers:
-            if os.path.exists(os.path.join(current_path, marker)):
-                return current_path
-        
-        # 尝试向上一级
-        parent_path = os.path.dirname(current_path)
-        
-        # 如果已经到了硬盘的根目录(比如 C:\ 或 /)还没找到
-        if parent_path == current_path:
-            # 没办法，这就当做根目录吧，或者报错
-            print("⚠️ 警告：没找到项目根目录，将使用脚本所在目录")
-            return os.path.dirname(os.path.abspath(__file__))
-        
-        current_path = parent_path
+
 
     
 
