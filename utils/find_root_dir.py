@@ -2,9 +2,8 @@ import os
 
 def get_project_root():
     """
-    聪明地找到项目根目录：
-    从当前脚本所在目录开始向上找，只要看到 '.env' 或 '.gitignore' 文件，
-    就认定那是根目录。
+    找到项目根目录：
+    
     """
     current_path = os.path.abspath(os.path.dirname(__file__))
     
@@ -22,7 +21,7 @@ def get_project_root():
         
         # 如果已经到了硬盘的根目录(比如 C:\ 或 /)还没找到
         if parent_path == current_path:
-            # 没办法，这就当做根目录吧，或者报错
+            #找不到，报错
             print("⚠️ 警告：没找到项目根目录，将使用脚本所在目录")
             return os.path.dirname(os.path.abspath(__file__))
         

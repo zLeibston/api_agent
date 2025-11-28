@@ -69,6 +69,7 @@ class Agent:
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model_name = model_name
         self.memory = AgentMemory(memory_path) # 拥有一个记忆模块
+        self.max_history = 5  # 【新增】只保留最近 5 轮对话
         
         # 上下文历史
         self.messages: List[ChatCompletionMessageParam] = [
@@ -88,7 +89,7 @@ class Agent:
                 "type": "function",
                 "function": {
                     "name": "manage_memory",
-                    "description": "记忆管理。action='read'读取相关记忆，action='write'写入重要信息。",
+                    "description": "记忆管理。如果你觉得有些信息你应该知道但却不知道，他有可能在你的记忆存储里面，试试在记忆中找找。如果你觉得有重要信息，也请写入记忆中。action='read'读取相关记忆，action='write'写入重要信息。",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -108,6 +109,19 @@ class Agent:
                 }
             }
         ]
+    
+    def _manage_history(self):
+        """
+        只保留最近的 max_history 轮对话，防止上下文过长
+        """
+        if len(self.messages) > self.max_history * 2 + 1: # *2 是因为(User+Assistant)成对，+1是System
+      
+            system_msg = self.messages[0]
+           
+            recent_msgs = self.messages[-(self.max_history * 2):]
+           
+            self.messages = [system_msg] + recent_msgs
+           
 
     # --- 工具具体实现 ---
     def _tool_manage_memory(self, args: Dict[str, Any]):
@@ -128,6 +142,8 @@ class Agent:
         执行一次对话交互。
         这把原来的大 while 循环拆解成了单次函数调用，方便评测。
         """
+        self._manage_history()
+
         self.messages.append({"role": "user", "content": user_input})
         
         # 1. 思考
@@ -184,22 +200,25 @@ class Agent:
 if __name__ == "__main__":
     load_dotenv()
     # 配置
-    API_KEY = os.getenv("SILICON_API_KEY")
+    API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
     if not API_KEY:
         raise ValueError("❌ 严重错误：未找到 API Key！请检查 .env 文件是否存在，以及变量名是否正确。")
 
-    BASE_URL = "https://api.siliconflow.cn/v1"
+    BASE_URL = os.getenv("DEEPSEEK_URL")
+
+    if not BASE_URL:
+        raise ValueError("❌ 严重错误：未找到 URL！请检查 .env 文件是否存在，以及变量名是否正确。")
     
-    # 锁定记忆文件路径
+  
     project_root_dir = get_project_root()
     memory_path = os.path.join(project_root_dir, "memory", "main_memory.json")
 
-    # 实例化 Agent
+   
     my_agent = Agent(
         api_key=API_KEY, 
         base_url=BASE_URL, 
-        model_name="Qwen/Qwen2.5-72B-Instruct",
+        model_name="deepseek-chat",
         memory_path=memory_path
     )
 
