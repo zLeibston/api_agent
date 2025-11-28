@@ -82,7 +82,8 @@ if __name__ == "__main__":
         '{"tool": "get_time"}',                       # 正常
         '```json\n{"tool": "get_time"}\n```',        # Markdown
         'Sure! Here is the code: {"tool": "get_time"}', # 包含废话
-        '{"tool": "get_time",}',                      # 尾部多余逗号 (标准json不支持，json_repair支持)
+        '{"tool": "get_time",}',           
+        'uedu{"tool":"rtyu"},}'         # 尾部多余逗号 (标准json不支持，json_repair支持)
     ]
     
     print("=== 开始测试清洗功能 ===")

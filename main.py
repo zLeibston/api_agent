@@ -70,6 +70,7 @@ class Agent:
         self.model_name = model_name
         self.memory = AgentMemory(memory_path) # 拥有一个记忆模块
         self.max_history = 5  # 【新增】只保留最近 5 轮对话
+        self.max_tool_iterations = 5  # 最大工具调用轮数，防止死循环    
         
         # 上下文历史
         self.messages: List[ChatCompletionMessageParam] = [
@@ -136,61 +137,77 @@ class Agent:
     def _tool_get_time(self, args):
         return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # --- 核心思考步 (Step) ---
+    
     def chat(self, user_input: str) -> str:
         """
         执行一次对话交互。
-        这把原来的大 while 循环拆解成了单次函数调用，方便评测。
+        支持循环调用工具 (ReAct 循环)，直到模型认为任务完成。
         """
-        self._manage_history()
+        #  历史管理 (
+        if hasattr(self, '_manage_history'):
+            self._manage_history()
 
         self.messages.append({"role": "user", "content": user_input})
-        
-        # 1. 思考
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=self.messages,
-            tools=self.tools_schema,
-            tool_choice="auto"
-        )
-        response_msg = response.choices[0].message
-        
-        # 2. 决策与工具调用
-        if response_msg.tool_calls:
-            self.messages.append(cast(ChatCompletionMessageParam, response_msg.model_dump()))
-            
-            for tool_call in response_msg.tool_calls:
-                tool_call = cast(ChatCompletionMessageToolCall, tool_call)
-                func_name = tool_call.function.name
-                func_args = parse_json_from_llm(tool_call.function.arguments)
+     
+        #记录循环步数
+        iteration = 0
 
-                
-                
-                print(f"⚙️ 调用工具: {func_name} | 参数: {func_args}")
-                
-                # 执行
-                func_result = self.available_functions[func_name](func_args)
-                
-                self.messages.append({
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "content": str(func_result)
-                })
-            
-            # 3. 拿到工具结果后的二次回复
-            final_res = self.client.chat.completions.create(
+        while iteration < self.max_tool_iterations:
+            # 1. 思考 (调用大模型)
+            response = self.client.chat.completions.create(
                 model=self.model_name,
-                messages=self.messages
+                messages=self.messages,
+                tools=self.tools_schema,
+                tool_choice="auto"
             )
-            reply = final_res.choices[0].message.content
-        else:
-            reply = response_msg.content
+            response_msg = response.choices[0].message
+            
+            # 2. 无论是否调用工具，都要先把 Assistant 的回复加入历史
+            #这是 OpenAI 协议要求的：Tool Message 必须紧跟在包含 tool_calls 的 Assistant Message 后面
+            self.messages.append(cast(ChatCompletionMessageParam, response_msg.model_dump()))
 
-        # 记录助手回复
-        if reply:
-            self.messages.append({"role": "assistant", "content": reply})
-        
-        return str(reply)
+            # 3. 判断是否需要调用工具
+            if response_msg.tool_calls:
+                iteration += 1
+                
+                # 处理本轮所有的工具调用 (OpenAI 支持并行调用)
+                for tool_call in response_msg.tool_calls:
+                    tool_call = cast(ChatCompletionMessageToolCall, tool_call)
+                    func_name = tool_call.function.name
+                    
+                    try:
+                        # 解析参数
+                        func_args = parse_json_from_llm(tool_call.function.arguments)
+                        print(f"⚙️ [第{iteration}轮] 调用工具: {func_name} | 参数: {func_args}")
+                        
+                        # 执行函数
+                        if func_name in self.available_functions:
+                            func_result = self.available_functions[func_name](func_args)
+                        else:
+                            func_result = f"Error: Tool '{func_name}' not found."
+                            
+                    except Exception as e:
+                        func_result = f"Error executing tool: {str(e)}"
+                        print(f"❌ 工具执行出错: {e}")
+
+                    # 将工具执行结果追加到历史
+                    self.messages.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "content": str(func_result)
+                    })
+                
+                # 关键：这里不 return，而是 continue。
+                # 让 while 循环继续，把带有工具结果的 history 再次发给 LLM。
+                # LLM 会看到结果，然后决定是继续调用下一个工具，还是输出最终回答。
+                continue 
+            
+            else:
+                # 4. 如果没有 tool_calls，说明模型输出了最终回答 (content)
+                # 此时已经在步骤 2 中把 content 加入历史了，直接返回即可
+                return str(response_msg.content)
+
+        return "⚠️ 任务过长，强制终止循环。"
     
 
 
