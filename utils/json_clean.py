@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Dict, Any, Union # 引入类型提示
+from typing import Dict, Any, Union ,Optional# 引入类型提示
 
 # 尝试导入 json_repair 库 (推荐安装: pip install json_repair)
 # 如果没安装，代码会自动降级使用内置的正则处理，不会报错
@@ -11,34 +11,26 @@ except ImportError:
     HAS_JSON_REPAIR = False
 
 def extract_json_block(text: str) -> str:
-    """
-    从大模型的一大段回复中，提取出真正的 JSON 部分。
-    例如：从 "好的，参数如下：```json\n{...}\n```" 中提取 "{...}"
-    """
-    # 1. 尝试去除 Markdown 代码块标记 (```json ... ```)
-    # flags=re.DOTALL 让 . 能匹配换行符
+    # ... (这部分保持你原来的代码不变，写得很好) ...
+    # 稍微优化一下正则，兼容 markdown 没写 json 字样的情况
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1)
     
-    # 2. 如果没有代码块，尝试找第一个 '{' 和最后一个 '}'
-    # 这样可以忽略掉开头的 "Here is the result:" 和结尾的 "."
     start = text.find("{")
     end = text.rfind("}")
-    
     if start != -1 and end != -1 and end > start:
         return text[start : end + 1]
-    
-    # 3. 如果实在找不到，原样返回
     return text
 
-def parse_json_from_llm(raw_text: str) -> Dict[str, Any]:
+def parse_json_from_llm(raw_text: str) -> Optional[Dict[str, Any]]:
     """
     清洗并解析大模型输出的 JSON。
-    保证只返回字典，如果解析失败或结果不是字典，返回 {}
+    返回 Dict: 解析成功
+    返回 None: 解析失败或类型错误 (用于触发外部 Retry)
     """
     if not raw_text:
-        return {}
+        return {} # 空字符串视为无参数，返回空字典是安全的
 
     # === 方案 A: 使用 json_repair (最强) ===
     if HAS_JSON_REPAIR:
@@ -46,7 +38,6 @@ def parse_json_from_llm(raw_text: str) -> Dict[str, Any]:
             # repair_json 可能返回 dict, list, str, float 等
             parsed = repair_json(raw_text, return_objects=True)
             
-            # --- 修复点：强制类型检查 ---
             if isinstance(parsed, dict):
                 return parsed
             elif isinstance(parsed, list):
@@ -54,8 +45,9 @@ def parse_json_from_llm(raw_text: str) -> Dict[str, Any]:
                 if len(parsed) > 0 and isinstance(parsed[0], dict):
                     return parsed[0]
             
-            # 如果解析出来是数字、字符串等奇奇怪怪的东西，视为无效，返回空字典
-            return {}
+            # 关键修改：类型不对（比如解析出字符串、数字），返回 None，而不是 {}
+            # 这样 main.py 才知道格式错了，才能触发 Retry
+            return None
             
         except Exception as e:
             print(f"⚠️ json_repair 解析异常: {e}，尝试手动清洗...")
@@ -68,13 +60,13 @@ def parse_json_from_llm(raw_text: str) -> Dict[str, Any]:
         res = json.loads(clean_text)
         if isinstance(res, dict):
             return res
-        # 如果 json.loads 成功但返回的不是字典（比如解析出个列表），也返回空
-        return {}
+        # 关键修改：类型不对，返回 None
+        return None
     except json.JSONDecodeError:
         pass 
 
     print(f"❌ JSON 解析彻底失败。原始文本:\n{raw_text}")
-    return {}
+    return None
 
 # 简单的测试代码 (当你直接运行这个文件时执行)
 if __name__ == "__main__":
